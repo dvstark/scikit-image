@@ -13,7 +13,7 @@ from functools import partial
 __all__ = ['radon', 'order_angles_golden_ratio', 'iradon', 'iradon_sart']
 
 
-def radon(image, theta=None, circle=True, *, preserve_range=False):
+def radon(image, theta=None, circle=True, *, preserve_range=False, fill_value=0, median=False):
     """
     Calculates the radon transform of an image given specified
     projection angles.
@@ -56,6 +56,10 @@ def radon(image, theta=None, circle=True, *, preserve_range=False):
     (https://www.clear.rice.edu/elec431/projects96/DSP/bpanalysis.html)
 
     """
+
+    if median == True:
+        print('Using median Radon Transform')
+
     if image.ndim != 2:
         raise ValueError('The input image must be 2-D')
     if theta is None:
@@ -88,7 +92,7 @@ def radon(image, theta=None, circle=True, *, preserve_range=False):
         pad_before = [nc - oc for oc, nc in zip(old_center, new_center)]
         pad_width = [(pb, p - pb) for pb, p in zip(pad_before, pad)]
         padded_image = np.pad(image, pad_width, mode='constant',
-                              constant_values=0)
+                              constant_values=fill_value)
 
     # padded_image is always square
     if padded_image.shape[0] != padded_image.shape[1]:
@@ -103,7 +107,10 @@ def radon(image, theta=None, circle=True, *, preserve_range=False):
                       [-sin_a, cos_a, -center * (cos_a - sin_a - 1)],
                       [0, 0, 1]])
         rotated = warp(padded_image, R, clip=False)
-        radon_image[:, i] = rotated.sum(0)
+        if median==False:
+                radon_image[:, i] = np.nansum(rotated,axis=0)#rotated.sum(0)
+        else:
+                radon_image[:,i] = np.nanmedian(rotated,axis=0)
     return radon_image
 
 
