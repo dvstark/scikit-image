@@ -8,12 +8,33 @@ from ._radon_transform import sart_projection_update
 from .._shared.utils import convert_to_float
 from warnings import warn
 from functools import partial
+from multiprocessing import Pool
 
 
 __all__ = ['radon', 'order_angles_golden_ratio', 'iradon', 'iradon_sart']
 
+def _rot_sum(image,angle):
+    center = image.shape[0] // 2
+    cos_a, sin_a = np.cos(angle), np.sin(angle)
+    R = np.array([[cos_a, sin_a, -center * (cos_a + sin_a - 1)],
+                  [-sin_a, cos_a, -center * (cos_a - sin_a - 1)],
+                  [0, 0, 1]])
+    rotated = warp(image, R, clip=False,cval=np.nan)
+    medarr = np.nansum(rotated,axis=0)
+    return medarr
 
-def radon(image, theta=None, circle=True, *, preserve_range=False, fill_value=0, median=False):
+def _rot_med(image,angle):
+
+    center = image.shape[0] // 2
+    cos_a, sin_a = np.cos(angle), np.sin(angle)
+    R = np.array([[cos_a, sin_a, -center * (cos_a + sin_a - 1)],
+                  [-sin_a, cos_a, -center * (cos_a - sin_a - 1)],
+                  [0, 0, 1]])
+    rotated = warp(image, R, clip=False,cval=np.nan)
+    medarr=np.nanmedian(rotated,axis=0)
+    return medarr#[medarr,rho]
+
+def radon(image, theta=None, circle=True, *, preserve_range=False, fill_value=0, median=False, threads=1):
     """
     Calculates the radon transform of an image given specified
     projection angles.
@@ -99,18 +120,31 @@ def radon(image, theta=None, circle=True, *, preserve_range=False, fill_value=0,
         raise ValueError('padded_image must be a square')
     center = padded_image.shape[0] // 2
     radon_image = np.zeros((padded_image.shape[0], len(theta)),
-                           dtype=image.dtype)
+                           dtype=image.dtype)+np.nan
 
-    for i, angle in enumerate(np.deg2rad(theta)):
-        cos_a, sin_a = np.cos(angle), np.sin(angle)
-        R = np.array([[cos_a, sin_a, -center * (cos_a + sin_a - 1)],
-                      [-sin_a, cos_a, -center * (cos_a - sin_a - 1)],
-                      [0, 0, 1]])
-        rotated = warp(padded_image, R, clip=False)
+    if threads <= 1:
+        for i, angle in enumerate(np.deg2rad(theta)):
+            cos_a, sin_a = np.cos(angle), np.sin(angle)
+            R = np.array([[cos_a, sin_a, -center * (cos_a + sin_a - 1)],
+                          [-sin_a, cos_a, -center * (cos_a - sin_a - 1)],
+                          [0, 0, 1]])
+            rotated = warp(padded_image, R, clip=False)
+            if median==False:
+                    radon_image[:, i] = np.nansum(rotated,axis=0)#rotated.sum(0)
+            else:
+                    radon_image[:,i] = np.nanmedian(rotated,axis=0)
+
+    else:
+        print('using {} threads'.format(threads))
+        p=Pool(threads)
+        angles = np.deg2rad(theta)
+        images = [padded_image for i in range(len(angles))]
+        pairs = list(zip(images,angles))
         if median==False:
-                radon_image[:, i] = np.nansum(rotated,axis=0)#rotated.sum(0)
+            radon_image = p.starmap(_rot_sum,pairs)
         else:
-                radon_image[:,i] = np.nanmedian(rotated,axis=0)
+            radon_image = p.starmap(_rot_med,pairs)
+        radon_image = np.array(radon_image).T
     return radon_image
 
 
