@@ -13,7 +13,7 @@ from multiprocessing import Pool
 
 __all__ = ['radon', 'order_angles_golden_ratio', 'iradon', 'iradon_sart']
 
-def _rot_sum(image,angle):
+def _rot_sum(image,angle,return_length):
     center = image.shape[0] // 2
     cos_a, sin_a = np.cos(angle), np.sin(angle)
     R = np.array([[cos_a, sin_a, -center * (cos_a + sin_a - 1)],
@@ -21,9 +21,12 @@ def _rot_sum(image,angle):
                   [0, 0, 1]])
     rotated = warp(image, R, clip=False,cval=np.nan)
     medarr = np.nansum(rotated,axis=0)
+    if return_length==True:
+        length = np.sum(np.isfinite(rotated),axis=0)
+        return [medarr,length]
     return medarr
 
-def _rot_med(image,angle):
+def _rot_med(image,angle,return_length):
 
     center = image.shape[0] // 2
     cos_a, sin_a = np.cos(angle), np.sin(angle)
@@ -32,9 +35,13 @@ def _rot_med(image,angle):
                   [0, 0, 1]])
     rotated = warp(image, R, clip=False,cval=np.nan)
     medarr=np.nanmedian(rotated,axis=0)
-    return medarr#[medarr,rho]
+    if return_length==True:
+        length = np.sum(np.isfinite(rotated),axis=0)
+        return [medarr,length]
+    else:
+        return medarr#[medarr,rho]
 
-def radon(image, theta=None, circle=True, *, preserve_range=False, fill_value=0, median=False, threads=1):
+def radon(image, theta=None, circle=True, *, preserve_range=False, fill_value=0, median=False, threads=1, return_length=False):
     """
     Calculates the radon transform of an image given specified
     projection angles.
@@ -139,13 +146,25 @@ def radon(image, theta=None, circle=True, *, preserve_range=False, fill_value=0,
         p=Pool(threads)
         angles = np.deg2rad(theta)
         images = [padded_image for i in range(len(angles))]
-        pairs = list(zip(images,angles))
+        return_lengths = [True for i in range(len(angles))]
+        pairs = list(zip(images,angles,return_lengths))
         if median==False:
-            radon_image = p.starmap(_rot_sum,pairs)
+            result = p.starmap(_rot_sum,pairs)
+            result=np.array(result)
+            radon_image = result[:,0,:]
+            lengths=result[:,1,:]
         else:
-            radon_image = p.starmap(_rot_med,pairs)
-        radon_image = np.array(radon_image).T
-    return radon_image
+            result = p.starmap(_rot_med,pairs)
+            result=np.array(result)
+            print(np.shape(result))
+            radon_image = result[:,0,:]
+            lengths=result[:,1,:]
+        radon_image = radon_image.T
+        lengths = lengths.T
+    if return_length==True:
+        return radon_image,lengths
+    else:
+        return radon_image
 
 
 def _sinogram_circle_to_square(sinogram):
